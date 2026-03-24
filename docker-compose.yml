@@ -1,6 +1,6 @@
 services:
   mariadb:
-    image: mariadb:lts-alpine
+    image: mariadb:lts
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -22,7 +22,7 @@ services:
         max-file: "3"
 
   wordpress:
-    image: wordpress:php8.3-apache-alpine
+    image: wordpress:6-php8.3-apache
     restart: unless-stopped
     depends_on:
       mariadb:
