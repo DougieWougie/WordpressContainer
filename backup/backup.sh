@@ -36,7 +36,7 @@ echo "=== Backup started at $(date) ==="
 echo "Dumping database..."
 docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T \
   -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb \
-  mariadb-dump -u root --all-databases \
+  mariadb-dump -u root --all-databases --single-transaction \
   | gzip > "$BACKUP_DIR/${TIMESTAMP}_db.sql.gz"
 echo "Database dump: ${TIMESTAMP}_db.sql.gz"
 
