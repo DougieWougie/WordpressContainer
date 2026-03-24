@@ -2,7 +2,12 @@
 set -euo pipefail
 
 COMPOSE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BACKUP_DIR="/opt/backups/wordpress"
+BACKUP_DIR="${BACKUP_DIR:-/opt/backups/wordpress}"
+
+if [ ! -f "$COMPOSE_DIR/docker-compose.yml" ]; then
+  echo "ERROR: docker-compose.yml not found at $COMPOSE_DIR"
+  exit 1
+fi
 
 # Load environment variables
 set -a
@@ -30,6 +35,15 @@ for f in "$DB_BACKUP" "$FILES_BACKUP"; do
   fi
 done
 
+# Validate backup integrity before restoring
+echo "Validating backup integrity..."
+gzip -t "$DB_BACKUP" || { echo "ERROR: DB backup corrupt"; exit 1; }
+docker run --rm \
+  -v "$BACKUP_DIR":/backup:ro \
+  alpine:latest \
+  tar tzf "/backup/${TIMESTAMP}_files.tar.gz" > /dev/null || { echo "ERROR: Files backup corrupt"; exit 1; }
+echo "Backups validated."
+
 # Resolve the actual Docker volume name for wp_data
 WP_VOLUME="$(docker volume ls --filter "name=wp_data" --format '{{.Name}}' | head -1)"
 if [ -z "$WP_VOLUME" ]; then
@@ -44,13 +58,15 @@ echo "Restoring from timestamp: $TIMESTAMP"
 echo "Ensuring MariaDB is running..."
 docker compose -f "$COMPOSE_DIR/docker-compose.yml" up -d mariadb
 echo "Waiting for MariaDB to be healthy..."
-docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T mariadb \
-  mariadb-admin ping -u root -p"${MYSQL_ROOT_PASSWORD}" --wait=30 > /dev/null 2>&1
+docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T \
+  -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb \
+  mariadb-admin ping -u root --wait=30 > /dev/null 2>&1
 
-# Restore database
+# Restore database (password passed via env inside container)
 echo "Restoring database..."
-gunzip -c "$DB_BACKUP" | docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T mariadb \
-  mariadb -u root -p"${MYSQL_ROOT_PASSWORD}"
+gunzip -c "$DB_BACKUP" | docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T \
+  -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb \
+  mariadb -u root
 echo "Database restored."
 
 # Restore WordPress files

@@ -6,9 +6,14 @@ set -euo pipefail
 
 # Configuration
 COMPOSE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-BACKUP_DIR="/opt/backups/wordpress"
+BACKUP_DIR="${BACKUP_DIR:-/opt/backups/wordpress}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 KEEP=3
+
+if [ ! -f "$COMPOSE_DIR/docker-compose.yml" ]; then
+  echo "ERROR: docker-compose.yml not found at $COMPOSE_DIR"
+  exit 1
+fi
 
 # Load environment variables
 set -a
@@ -27,10 +32,11 @@ mkdir -p "$BACKUP_DIR"
 
 echo "=== Backup started at $(date) ==="
 
-# Database dump
+# Database dump (password passed via env inside container to avoid process tree exposure)
 echo "Dumping database..."
-docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T mariadb \
-  mariadb-dump -u root -p"${MYSQL_ROOT_PASSWORD}" --all-databases \
+docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T \
+  -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb \
+  mariadb-dump -u root --all-databases \
   | gzip > "$BACKUP_DIR/${TIMESTAMP}_db.sql.gz"
 echo "Database dump: ${TIMESTAMP}_db.sql.gz"
 
@@ -42,6 +48,15 @@ docker run --rm \
   alpine:latest \
   tar czf "/backup/${TIMESTAMP}_files.tar.gz" -C /data .
 echo "Files backup: ${TIMESTAMP}_files.tar.gz"
+
+# Validate backup integrity
+echo "Validating backups..."
+gzip -t "$BACKUP_DIR/${TIMESTAMP}_db.sql.gz" || { echo "ERROR: DB backup corrupt"; exit 1; }
+docker run --rm \
+  -v "$BACKUP_DIR":/backup:ro \
+  alpine:latest \
+  tar tzf "/backup/${TIMESTAMP}_files.tar.gz" > /dev/null || { echo "ERROR: Files backup corrupt"; exit 1; }
+echo "Backups validated."
 
 # Rotation — keep only the most recent $KEEP backup sets
 echo "Rotating old backups (keeping $KEEP most recent)..."
