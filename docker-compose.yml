@@ -2,6 +2,8 @@ services:
   mariadb:
     image: mariadb:lts
     restart: unless-stopped
+    networks:
+      - backend
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -27,24 +29,53 @@ services:
     depends_on:
       mariadb:
         condition: service_healthy
+    networks:
+      - backend
+      - proxy
     ports:
       - "127.0.0.1:8080:80"
     environment:
-      WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}
+      WORDPRESS_DB_HOST: mariadb
       WORDPRESS_DB_USER: ${MYSQL_USER}
       WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
       WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
       WORDPRESS_CONFIG_EXTRA: |
         $$_SERVER['HTTPS'] = 'on';
         define('FORCE_SSL_ADMIN', true);
+        define('DISABLE_WP_CRON', true);
     volumes:
       - wp_data:/var/www/html
+      - ./themes:/var/www/html/wp-content/themes
       - ./config/php.ini:/usr/local/etc/php/conf.d/custom.ini:ro
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+  wp-cron:
+    image: curlimages/curl:latest
+    restart: unless-stopped
+    depends_on:
+      - wordpress
+    networks:
+      - backend
+    entrypoint: /bin/sh
+    command: >
+      -c "while true; do
+        curl -fsS -o /dev/null 'http://wordpress/wp-cron.php?doing_wp_cron' 2>&1;
+        sleep 300;
+      done"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "1m"
+        max-file: "1"
+
+networks:
+  backend:
+  proxy:
+    external: true
 
 volumes:
   db_data:

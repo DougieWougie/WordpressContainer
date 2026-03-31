@@ -28,7 +28,11 @@ if [ -z "$WP_VOLUME" ]; then
   exit 1
 fi
 
-mkdir -p "$BACKUP_DIR"
+mkdir -p "$BACKUP_DIR" || { echo "ERROR: Cannot create $BACKUP_DIR"; exit 1; }
+if [ ! -w "$BACKUP_DIR" ]; then
+  echo "ERROR: $BACKUP_DIR is not writable by $(whoami)"
+  exit 1
+fi
 
 echo "=== Backup started at $(date) ==="
 
