@@ -58,15 +58,13 @@ echo "Restoring from timestamp: $TIMESTAMP"
 echo "Ensuring MariaDB is running..."
 docker compose -f "$COMPOSE_DIR/docker-compose.yml" up -d mariadb
 echo "Waiting for MariaDB to be healthy..."
-docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T \
-  -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb \
-  mariadb-admin ping -u root --wait=30 > /dev/null 2>&1
+docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T mariadb \
+  sh -c 'MYSQL_PWD="$(cat /run/secrets/db_root_password)" mariadb-admin ping -u root --wait=30' > /dev/null 2>&1
 
-# Restore database (password passed via env inside container)
+# Restore database (root password read from the Docker secret inside the container)
 echo "Restoring database..."
-gunzip -c "$DB_BACKUP" | docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T \
-  -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb \
-  mariadb -u root
+gunzip -c "$DB_BACKUP" | docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T mariadb \
+  sh -c 'MYSQL_PWD="$(cat /run/secrets/db_root_password)" mariadb -u root'
 echo "Database restored."
 
 # Restore WordPress files

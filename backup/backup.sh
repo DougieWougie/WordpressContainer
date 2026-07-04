@@ -36,11 +36,11 @@ fi
 
 echo "=== Backup started at $(date) ==="
 
-# Database dump (password passed via env inside container to avoid process tree exposure)
+# Database dump (root password read from the Docker secret inside the container;
+# it never touches the host environment or process tree)
 echo "Dumping database..."
-docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T \
-  -e MYSQL_PWD="${MYSQL_ROOT_PASSWORD}" mariadb \
-  mariadb-dump -u root --all-databases --single-transaction \
+docker compose -f "$COMPOSE_DIR/docker-compose.yml" exec -T mariadb \
+  sh -c 'MYSQL_PWD="$(cat /run/secrets/db_root_password)" mariadb-dump -u root --all-databases --single-transaction' \
   | gzip > "$BACKUP_DIR/${TIMESTAMP}_db.sql.gz"
 echo "Database dump: ${TIMESTAMP}_db.sql.gz"
 
@@ -69,5 +69,15 @@ ls -t "$BACKUP_DIR"/*_db.sql.gz 2>/dev/null | tail -n +$((KEEP + 1)) | while rea
   rm -f "${base}_db.sql.gz" "${base}_files.tar.gz"
   echo "Deleted: $(basename "$base")"
 done
+
+# Offsite copy (optional — set RCLONE_REMOTE in .env, e.g. b2:my-bucket/wordpress).
+# Uses copy, not sync, so offsite retention is never reduced by local rotation.
+if [ -n "${RCLONE_REMOTE:-}" ]; then
+  echo "Copying backup offsite to ${RCLONE_REMOTE}..."
+  rclone copy "$BACKUP_DIR/${TIMESTAMP}_db.sql.gz" "$RCLONE_REMOTE" \
+    && rclone copy "$BACKUP_DIR/${TIMESTAMP}_files.tar.gz" "$RCLONE_REMOTE" \
+    && echo "Offsite copy complete." \
+    || { echo "ERROR: Offsite copy failed"; exit 1; }
+fi
 
 echo "=== Backup completed at $(date) ==="
